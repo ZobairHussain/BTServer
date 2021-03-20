@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">BT Server</string>
+    <string name="message">Message</string>
 </resources>

@@ -25,13 +25,11 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
-    Button listen,send, listDevices;
-    ListView listView;
+    Button send;
     TextView msg_box,status;
     EditText writeMsg;
 
     BluetoothAdapter bluetoothAdapter;
-    BluetoothDevice[] btArray;
 
     ServerClass serverClass;
     BluetoothServerSocket serverSocket;
@@ -64,42 +62,13 @@ public class MainActivity extends AppCompatActivity {
             startActivityForResult(enableIntent,REQUEST_ENABLE_BLUETOOTH);
         }
 
+        serverClass=new ServerClass();
+        serverClass.start();
+        msg_box.setText("Message");
         implementListeners();
     }
 
     private void implementListeners() {
-
-        listDevices.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Set<BluetoothDevice> bt=bluetoothAdapter.getBondedDevices();
-                String[] strings=new String[bt.size()];
-                btArray=new BluetoothDevice[bt.size()];
-
-                if( bt.size()>0)
-                {
-                    int index = 0;
-                    for(BluetoothDevice device : bt)
-                    {
-                        btArray[index]= device;
-                        strings[index]=device.getName();
-                        index++;
-                    }
-                    ArrayAdapter<String> arrayAdapter=new ArrayAdapter<String>(getApplicationContext(),android.R.layout.simple_list_item_1,strings);
-                    listView.setAdapter(arrayAdapter);
-                }
-            }
-        });
-
-        listen.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                serverClass=new ServerClass();
-                serverClass.start();
-            }
-        });
-
-
         send.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -144,7 +113,6 @@ public class MainActivity extends AppCompatActivity {
     });
 
     private void findViewByIdes() {
-        listen=(Button) findViewById(R.id.listen);
         status=(TextView) findViewById(R.id.status);
 
         writeMsg=(EditText) findViewById(R.id.writemsg);
