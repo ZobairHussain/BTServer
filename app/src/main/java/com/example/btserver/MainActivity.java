@@ -1,32 +1,36 @@
 package com.example.btserver;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
+import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.telephony.TelephonyManager;
+import android.view.KeyEvent;
 import android.view.View;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     Button send;
-    TextView msg_box,status;
+    TextView msg_box, connectingStatus;
     EditText writeMsg;
 
     BluetoothAdapter bluetoothAdapter;
@@ -35,13 +39,20 @@ public class MainActivity extends AppCompatActivity {
     BluetoothServerSocket serverSocket;
     String DISCONNECTING_REQUEST = "-1";
 
-    SendReceive sendReceive;
+    static SendReceive sendReceive;
 
-    static final int STATE_LISTENING = 1;
-    static final int STATE_CONNECTING=2;
-    static final int STATE_CONNECTED=3;
-    static final int STATE_CONNECTION_FAILED=4;
-    static final int STATE_MESSAGE_RECEIVED=5;
+    static final int CONNECTING_STATE_LISTENING = 1;
+    static final int CONNECTING_STATE_CONNECTING =2;
+    static final int CONNECTING_STATE_CONNECTED =3;
+    static final int CONNECTING_STATE_CONNECTION_FAILED =4;
+    static final int CONNECTING_STATE_MESSAGE_RECEIVED =5;
+    static int CONNECTING_STATE = -1;
+
+    static final int CALL_STATE_RINGING = 1;
+    static final int CALL_STATE_RECEIVED = 2;
+    static final int CALL_STATE_IDLE = 3;
+    static int CALL_STATE = -1;
+
 
     int REQUEST_ENABLE_BLUETOOTH=1;
 
@@ -54,6 +65,11 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         findViewByIdes();
+
+        if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED){
+            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.READ_PHONE_STATE}, 1);
+        }
+
         bluetoothAdapter=BluetoothAdapter.getDefaultAdapter();
 
         if(!bluetoothAdapter.isEnabled())
@@ -64,8 +80,22 @@ public class MainActivity extends AppCompatActivity {
 
         serverClass=new ServerClass();
         serverClass.start();
-        msg_box.setText("Message");
         implementListeners();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        switch (requestCode){
+            case 1:
+                if(grantResults.length>0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                    if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED){
+                        Toast.makeText(this, "READ_PHONE_STATE granted", Toast.LENGTH_SHORT).show();
+                    }else{
+                        Toast.makeText(this, "READ_PHONE_STATE permission not granted", Toast.LENGTH_SHORT).show();
+                    }
+                    return;
+                }
+        }
     }
 
     private void implementListeners() {
@@ -84,19 +114,29 @@ public class MainActivity extends AppCompatActivity {
 
             switch (msg.what)
             {
-                case STATE_LISTENING:
-                    status.setText("Listening");
+                case CONNECTING_STATE_LISTENING:
+                    connectingStatus.setText("Listening");
+                    CONNECTING_STATE = CONNECTING_STATE_LISTENING;
                     break;
-                case STATE_CONNECTING:
-                    status.setText("Connecting");
+                case CONNECTING_STATE_CONNECTING:
+                    connectingStatus.setText("Connecting");
+                    CONNECTING_STATE = CONNECTING_STATE_CONNECTING;
                     break;
-                case STATE_CONNECTED:
-                    status.setText("Connected");
+                case CONNECTING_STATE_CONNECTED:
+                    connectingStatus.setText("Connected");
+                    CONNECTING_STATE = CONNECTING_STATE_CONNECTED;
+                    if(CALL_STATE == CALL_STATE_RINGING){
+                        sendReceive.write("RINGING".getBytes());
+                    }
+                    else if(CALL_STATE == CALL_STATE_RECEIVED){
+                        sendReceive.write("RECEIVED".getBytes());
+                    }
                     break;
-                case STATE_CONNECTION_FAILED:
-                    status.setText("Connection Failed");
+                case CONNECTING_STATE_CONNECTION_FAILED:
+                    connectingStatus.setText("Connection Failed");
+                    CONNECTING_STATE = CONNECTING_STATE_CONNECTION_FAILED;
                     break;
-                case STATE_MESSAGE_RECEIVED:
+                case CONNECTING_STATE_MESSAGE_RECEIVED:
                     byte[] readBuff= (byte[]) msg.obj;
                     String tempMsg=new String(readBuff,0,msg.arg1);
                     if(tempMsg.equals(DISCONNECTING_REQUEST)){
@@ -113,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
     });
 
     private void findViewByIdes() {
-        status=(TextView) findViewById(R.id.status);
+        connectingStatus=(TextView) findViewById(R.id.status);
 
         writeMsg=(EditText) findViewById(R.id.writemsg);
         send=(Button) findViewById(R.id.send);
@@ -138,21 +178,21 @@ public class MainActivity extends AppCompatActivity {
             {
                 try {
                     Message message=Message.obtain();
-                    message.what=STATE_CONNECTING;
+                    message.what= CONNECTING_STATE_CONNECTING;
                     handler.sendMessage(message);
 
                     socket=serverSocket.accept();
                 } catch (IOException e) {
                     e.printStackTrace();
                     Message message=Message.obtain();
-                    message.what=STATE_CONNECTION_FAILED;
+                    message.what= CONNECTING_STATE_CONNECTION_FAILED;
                     handler.sendMessage(message);
                 }
 
                 if(socket!=null)
                 {
                     Message message=Message.obtain();
-                    message.what=STATE_CONNECTED;
+                    message.what= CONNECTING_STATE_CONNECTED;
                     handler.sendMessage(message);
 
                     sendReceive=new SendReceive(socket);
@@ -163,21 +203,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private class SendReceive extends Thread
+    public class SendReceive extends Thread
     {
-        private final BluetoothSocket bluetoothSocket;
         private final InputStream inputStream;
         private final OutputStream outputStream;
 
         public SendReceive (BluetoothSocket socket)
         {
-            bluetoothSocket=socket;
             InputStream tempIn=null;
             OutputStream tempOut=null;
 
             try {
-                tempIn=bluetoothSocket.getInputStream();
-                tempOut=bluetoothSocket.getOutputStream();
+                tempIn= socket.getInputStream();
+                tempOut= socket.getOutputStream();
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -189,13 +227,12 @@ public class MainActivity extends AppCompatActivity {
         public void run()
         {
             byte[] buffer=new byte[1024];
-            int bytes;
 
             while (true)
             {
                 try {
-                    bytes=inputStream.read(buffer);
-                    handler.obtainMessage(STATE_MESSAGE_RECEIVED,bytes,-1,buffer).sendToTarget();
+                    int bytes = inputStream.read(buffer);
+                    handler.obtainMessage(CONNECTING_STATE_MESSAGE_RECEIVED,bytes,-1,buffer).sendToTarget();
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -209,6 +246,9 @@ public class MainActivity extends AppCompatActivity {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+        public void setWrite(String s) {
+            write(s.getBytes());
         }
     }
 }
